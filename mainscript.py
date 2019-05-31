@@ -1,85 +1,129 @@
-import pandas as pd
-import numpy as np
 import os
-import re, string, unicodedata
-from nltk import word_tokenize, sent_tokenize
+import re
+
+import nltk
+import numpy as np
+import pandas as pd
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 from sklearn import svm
-from nltk.stem import LancasterStemmer, WordNetLemmatizer
-from sklearn.datasets import fetch_20newsgroups
-from nltk.corpus import reuters
-from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 
-np.random.seed(500)
-stop_words = stopwords.words("english")
+np.random.seed(500)  # in order to have the exact same result for each run
+nltk.download('stopwords')
+nltk.download('punkt')
+STOP_WORDS = stopwords.words("english")  # stop words cache
+
+TEXT_PATH = "/home/klesisz/Pulpit/bbc/"
+
 
 # reads one folder
 def read_folder(path_to_folder):
+    print("Starting import from: " + path_to_folder)
     labels, texts = [], []
     for filename in os.listdir(path_to_folder):
-        with open(path_to_folder + '/' +filename, "r") as file:
-            data = texts.append(file.read())
-            label = labels.append(path_to_folder)
+        with open(os.path.join(path_to_folder, filename), "r", encoding="ISO-8859-1") as file:
+            texts.append(file.read())
+            labels.append(os.path.split(path_to_folder)[1])
     folder_data = pd.DataFrame()
     folder_data['label'] = labels
     folder_data['text'] = texts
     return folder_data
 
-#reads many folders to a dataFrame
+
+# reads many folders to a dataFrame
 def read_data(path_to_folder):
+    print("Starting data read")
     data = pd.DataFrame()
     for foldername in os.listdir(path_to_folder):
-        data = pd.concat([data, read_folder(path_to_folder + '/' + foldername)], ignore_index=True)
+        data = pd.concat([data, read_folder(os.path.join(path_to_folder, foldername))], ignore_index=True)
+    print("Finished reading data")
     return data
 
-def split_data(data, split_ratio):
-    training_set = pd.DataFrame()
-    test_set = pd.DataFrame()
-    data_training, data_test = train_test_split(data, test_size= split_ratio, random_state=42)
-    return data_training, data_test
 
-def preprocessing(data):
-    #tokenization,
-    for index, row in data.iterrows():
-        data.at[index, 'text'] = tokenize(data.at[index, 'text'])
-        #representer = tf_idf(data['text'])
+def split_data(text, labels, split_ratio):
+    """
+    :param data:
+    :param split_ratio:
+    :return: train_x: training data predictors
+    :return: train_y: training data target
+    :return: test_x: test data predictors
+    :return: test_y: test data target
+    """
+    train_x, test_x, train_y, test_y = train_test_split(text, labels, test_size=split_ratio, random_state=42)
+    return train_x, test_x, train_y, test_y
 
 
-def tokenize(text):
+def preprocess(data):
+    text = data['text']
     min_length = 3
-    words = map(lambda word: word.lower(), word_tokenize(text))
-    words = [word for word in words if word not in stop_words]
-    tokens =(list(map(lambda token: PorterStemmer().stem(token),words)))
-    p = re.compile('[a-zA-Z]+')
-    filtered_tokens =list(filter(lambda token: p.match(token) and len(token)>=min_length, tokens))
-    return filtered_tokens
-
-def tf_idf(text):
-    tfidf = TfidfVectorizer(tokenizer=tokenize, min_df=3,
-                        max_df=0.90, max_features=3000,
-                        use_idf=True, sublinear_tf=True,
-                        norm='l2')
-    tfidf.fit(text)
-    return tfidf
+    for index, entry in enumerate(text):
+        # change text to lowercase, split into individual words
+        words = [word.lower() for word in nltk.word_tokenize(entry)]
+        # remove stopwords
+        words = [word for word in words if word not in STOP_WORDS]
+        # word stemming/lemmatization
+        tokens = (list(map(lambda token: PorterStemmer().stem(token), words)))
+        # filter out non-alphabetic words and tokens shorter that min_length
+        p = re.compile('[a-zA-Z]+')
+        filtered_tokens = list(filter(lambda token: p.match(token) and len(token) >= min_length, tokens))
+        data.loc[index, 'final'] = str(filtered_tokens)
 
 
 def main():
-    #data loading and splitting
-    #twenty_training_set = fetch_20newsgroups(subset='train', shuffle=True)
-    #twenty_test_set = fetch_20newsgroups(subset='test', shuffle=True)
+    bbc_data = read_data(TEXT_PATH)
+    print("Preprocessing data")
+    preprocess(bbc_data)
+    bbc_training_set_x, bbc_test_set_x, bbc_training_set_y, bbc_test_set_y = split_data(bbc_data['final'],
+                                                                                        bbc_data['label'], 0.3)
 
-    #reuters_data = reuters.fileids()
-    #reuters_training_set = list(filter(lambda doc: doc.startswith("train"),reuters_data))
-    #reuters_test_set = list(filter(lambda doc: doc.startswith("test"),reuters_data))
+    # label encode the target variable
+    Encoder = LabelEncoder()
+    bbc_training_set_y = Encoder.fit_transform(bbc_training_set_y)
+    bbc_test_set_y = Encoder.fit_transform(bbc_test_set_y)
 
-    bbc_data = read_data("./data/bbc")
-    bbc_training_set, bbc_test_set = split_data(bbc_data, 0.3)
-    #data_preprocessing
-    preprocessing(bbc_training_set)
-    preprocessing(bbc_test_set)
+    vectorizer = TfidfVectorizer(min_df=3,
+                                 max_df=0.90,
+                                 max_features=3000,
+                                 use_idf=True,
+                                 sublinear_tf=True,
+                                 norm='l2')
 
-    bbc_data = read_data("./data/bbc")
+    vectorized_train_documents = vectorizer.fit_transform(bbc_training_set_x)
+    vectorized_test_documents = vectorizer.transform(bbc_test_set_x)
 
-main()
+    # OVO
+    print("\n--------------\nOVO")
+    # Classifier - Algorithm - SVM
+    # fit the training dataset on the classifier
+    SVM = svm.SVC(C=1.0, tol=1e-5)
+    SVM.fit(vectorized_train_documents, bbc_training_set_y)
+
+    # predict the labels on validation dataset
+    predictions_SVM = SVM.predict(vectorized_test_documents)
+
+    # Use accuracy_score function to get the accuracy
+    print("SVM Accuracy Score -> ", accuracy_score(predictions_SVM, bbc_test_set_y) * 100)
+
+    # OVA
+
+    print("\n--------------\nOVA")
+
+    # Classifier - Algorithm - SVC
+    # fit the training dataset on the classifier
+    SVM = svm.LinearSVC(C=1.0, tol=1e-5)
+    SVM.fit(vectorized_train_documents, bbc_training_set_y)
+
+    # predict the labels on validation dataset
+    predictions_SVM = SVM.predict(vectorized_test_documents)
+
+    # Use accuracy_score function to get the accuracy
+    print("SVM Accuracy Score -> ", accuracy_score(predictions_SVM, bbc_test_set_y) * 100)
+    print("--------------")
+
+
+if __name__ == '__main__':
+    main()
