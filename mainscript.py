@@ -14,7 +14,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-
+from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.svm import LinearSVC
 
 np.random.seed(500)  # in order to have the exact same result for each run
 nltk.download('stopwords')
@@ -22,7 +24,7 @@ nltk.download('punkt')
 STOP_WORDS = stopwords.words("english")  # stop words cache
 
 TEXT_PATH = u'C:\\Users\\a\\Desktop\\WedtDane\\bbc'
-
+#TEXT_PATH = u'C:\\Users\\Gabrysia\\Pulpit\\STUDIA\\WEDT\\projekt\\data\\bbc'
 
 # reads one folder
 def read_folder(path_to_folder):
@@ -88,11 +90,48 @@ def FrameTNG (set):
     df = df[['label', 'text']]
     return df
 
+def frameNLTK_set(nltk_set):
+    documents = nltk_set.fileids()
+
+    train_docs_id = list(filter(lambda doc: doc.startswith("train"),
+                                documents))
+    test_docs_id = list(filter(lambda doc: doc.startswith("test"),
+                               documents))
+    train_docs = [nltk_set.raw(doc_id) for doc_id in train_docs_id]
+    test_docs = [nltk_set.raw(doc_id) for doc_id in test_docs_id]
+    mlb = MultiLabelBinarizer()
+    train_labels = (mlb.fit_transform([nltk_set.categories(doc_id)
+                                      for doc_id in train_docs_id])).tolist()
+    test_labels = (mlb.transform([nltk_set.categories(doc_id)
+                                 for doc_id in test_docs_id])).tolist()
+
+    training_set = pd.DataFrame()
+    training_set['label'] = train_labels
+    training_set['text'] = train_docs
+    test_set = pd.DataFrame()
+    test_set['label'] = test_labels
+    test_set['text'] = test_docs
+
+    return training_set, test_set
+
 
 def main():
-    #bbc_data = read_data(TEXT_PATH)
+    # bbc_data = read_data(TEXT_PATH)
+    # preprocess(bbc_data)
+    # bbc_training_set_x, bbc_test_set_x, bbc_training_set_y, bbc_test_set_y = split_data(bbc_data['final'],
+    #                                                                                    bbc_data['label'], 0.3)
 
     from nltk.corpus import reuters
+
+    reuters_training_set, reuters_test_set = frameNLTK_set(reuters)
+    print("Preprocessing data")
+    preprocess(reuters_training_set)
+    preprocess(reuters_test_set)
+
+    reuters_training_set_x = reuters_training_set.loc[:,'final']
+    reuters_training_set_y = reuters_training_set.loc[:, 'label']
+    reuters_test_set_x = reuters_training_set.loc[:,'final']
+    reuters_test_set_y = reuters_training_set.loc[:,'label']
 
 
     from sklearn.datasets import fetch_20newsgroups
@@ -100,63 +139,60 @@ def main():
     #cats = ['alt.atheism', 'sci.space']
     #TNG_training_set = fetch_20newsgroups(subset='train', categories=cats, remove=('headers', 'footers', 'quotes'))
     #TNG_test_set = fetch_20newsgroups(subset='test', categories=cats, remove=('headers', 'footers', 'quotes'))
-    TNG_training_set = fetch_20newsgroups(subset='train', remove=('headers', 'footers', 'quotes'))
-    TNG_test_set = fetch_20newsgroups(subset='test', remove=('headers', 'footers', 'quotes'))
+    # TNG_training_set = fetch_20newsgroups(subset='train', remove=('headers', 'footers', 'quotes'))
+    # TNG_test_set = fetch_20newsgroups(subset='test', remove=('headers', 'footers', 'quotes'))
+    #
+    # TNG_train_data = FrameTNG(TNG_training_set)
+    # TNG_test_data = FrameTNG(TNG_test_set)
+    #
+    # print("Preprocessing data")
+    # preprocess(TNG_train_data)
+    # preprocess(TNG_test_data)
+    #
+    # print(TNG_train_data)
+    # print(TNG_test_data)
 
-    TNG_train_data = FrameTNG(TNG_training_set)
-    TNG_test_data = FrameTNG(TNG_test_set)
+    # TNG_training_set_x = TNG_train_data.loc[:,'final']
+    # TNG_training_set_y = TNG_train_data.loc[:, 'label']
+    # TNG_test_set_x = TNG_test_data.loc[:,'final']
+    # TNG_test_set_y = TNG_test_data.loc[:,'label']
+    #
+    # print(TNG_training_set_x)
+    # print(TNG_training_set_y)
+    # print(TNG_test_set_x)
+    # print(TNG_test_set_y)
 
-    print("Preprocessing data")
-    preprocess(TNG_train_data)
-    preprocess(TNG_test_data)
-
-    print(TNG_train_data)
-    print(TNG_test_data)
-
-
-    #(bbc_data)
-    #bbc_training_set_x, bbc_test_set_x, bbc_training_set_y, bbc_test_set_y = split_data(bbc_data['final'],
-    #                                                                                    bbc_data['label'], 0.3)
-
-    TNG_training_set_x = TNG_train_data.loc[:,'final']
-    TNG_training_set_y = TNG_train_data.loc[:, 'label']
-    TNG_test_set_x = TNG_test_data.loc[:,'final']
-    TNG_test_set_y = TNG_test_data.loc[:,'label']
-
-    print(TNG_training_set_x)
-    print(TNG_training_set_y)
-    print(TNG_test_set_x)
-    print(TNG_test_set_y)
 
     # label encode the target variable
+
     Encoder = LabelEncoder()
-    #bbc_training_set_y = Encoder.fit_transform(bbc_training_set_y)
-    #bbc_test_set_y = Encoder.fit_transform(bbc_test_set_y)
+    # bbc_training_set_y = Encoder.fit_transform(bbc_training_set_y)
+    # bbc_test_set_y = Encoder.fit_transform(bbc_test_set_y)
+    #
+    # print("bbc print x 1")
+    # print(bbc_training_set_x)
+    # print("bbc print x 2")
+    # print(bbc_test_set_x)
+    #
+    # print("bbc print y 1")
+    # print(bbc_training_set_y)
+    # print("bbc print y 2")
+    # print(bbc_test_set_y)
+    #------------------------------------------------------------------------
+    # TNG_training_set_y = Encoder.fit_transform(TNG_training_set_y)
+    # TNG_test_set_y = Encoder.fit_transform(TNG_test_set_y)
+    #
+    # print("TNG print x 1")
+    # print(TNG_training_set_x)
+    # print("TNG print x 2")
+    # print(TNG_test_set_x)
+    #
+    # print("TNG print y 1")
+    # print(TNG_training_set_y)
+    # print("TNG print y 2")
+    # print(TNG_test_set_y)
 
-    #print("bbc print x 1")
-    #print(bbc_training_set_x)
-    #print("bbc print x 2")
-    #print(bbc_test_set_x)
-
-    #print("bbc print y 1")
-    #print(bbc_training_set_y)
-    #print("bbc print y 2")
-    #print(bbc_test_set_y)
-
-
-    TNG_training_set_y = Encoder.fit_transform(TNG_training_set_y)
-    TNG_test_set_y = Encoder.fit_transform(TNG_test_set_y)
-
-    print("tng print x 1")
-    print(TNG_training_set_x)
-    print("tng print x 2")
-    print(TNG_test_set_x)
-
-    print("tng print y 1")
-    print(TNG_training_set_y)
-    print("tng print y 2")
-    print(TNG_test_set_y)
-
+    # ------------------------------------------------------------------------
 
     vectorizer = TfidfVectorizer(min_df=3,
                                  max_df=0.90,
@@ -165,24 +201,27 @@ def main():
                                  sublinear_tf=True,
                                  norm='l2')
 
-    #vectorized_train_documents = vectorizer.fit_transform(bbc_training_set_x)
-    #vectorized_test_documents = vectorizer.transform(bbc_test_set_x)
+    #vectorized_train_documents_bbc = vectorizer.fit_transform(bbc_training_set_x)
+    #vectorized_test_documents_bbc = vectorizer.transform(bbc_test_set_x)
 
-    vectorized_train_documents_TNG = vectorizer.fit_transform(TNG_training_set_x)
-    vectorized_test_documents_TNG = vectorizer.transform(TNG_test_set_x)
+    vectorized_train_documents_reuters = vectorizer.fit_transform(reuters_training_set_x)
+    vectorized_test_documents_reuters = vectorizer.transform(reuters_test_set_x)
+
+    #vectorized_train_documents_TNG = vectorizer.fit_transform(TNG_training_set_x)
+    #vectorized_test_documents_TNG = vectorizer.transform(TNG_test_set_x)
 
     # OVO
     print("\n--------------\nOVO")
     # Classifier - Algorithm - SVM
     # fit the training dataset on the classifier
     SVM = svm.SVC(C=1.0, tol=1e-5)
-    SVM.fit(vectorized_train_documents_TNG, TNG_training_set_y)
+    SVM.fit(vectorized_train_documents_reuters, reuters_training_set_y)
 
     # predict the labels on validation dataset
-    predictions_SVM = SVM.predict(vectorized_test_documents_TNG)
+    predictions_SVM = SVM.predict(vectorized_test_documents_reuters)
 
     # Use accuracy_score function to get the accuracy
-    print("SVM Accuracy Score -> ", accuracy_score(predictions_SVM, TNG_test_set_y) * 100)
+    print("SVM Accuracy Score -> ", accuracy_score(predictions_SVM, reuters_test_set_y) * 100)
 
     # OVA
 
@@ -191,13 +230,19 @@ def main():
     # Classifier - Algorithm - SVC
     # fit the training dataset on the classifier
     SVM = svm.LinearSVC(C=1.0, tol=1e-5)
-    SVM.fit(vectorized_train_documents_TNG, TNG_training_set_y)
+    SVM.fit(vectorized_train_documents_reuters, reuters_training_set_y)
 
     # predict the labels on validation dataset
-    predictions_SVM = SVM.predict(vectorized_test_documents_TNG)
+    predictions_SVM = SVM.predict(vectorized_test_documents_reuters)
+
+    # TEST with the other SVM function
+    # classifier = OneVsRestClassifier(LinearSVC(random_state=42))
+    # classifier.fit(vectorized_train_documents_reuters, reuters_training_set_y)
+    # #
+    # predictions_SVM = classifier.predict(vectorized_test_documents_reuters)
 
     # Use accuracy_score function to get the accuracy
-    print("SVM Accuracy Score -> ", accuracy_score(predictions_SVM, TNG_test_set_y) * 100)
+    print("SVM Accuracy Score -> ", accuracy_score(predictions_SVM, reuters_test_set_y) * 100)
     print("--------------")
 
 
