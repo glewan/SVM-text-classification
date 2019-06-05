@@ -3,17 +3,23 @@ import os
 import re
 import sys
 import nltk
+import string
+import time
 import gensim
 import numpy as np
 import pandas as pd
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
+from nltk.tokenize import RegexpTokenizer
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.datasets import fetch_20newsgroups
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.multiclass import OneVsOneClassifier
+from skmultilearn.problem_transform import ClassifierChain
 from sklearn.svm import LinearSVC
 from sklearn.metrics import f1_score, precision_score, recall_score, confusion_matrix, multilabel_confusion_matrix
 
@@ -22,8 +28,9 @@ nltk.download('stopwords')
 nltk.download('punkt')
 STOP_WORDS = stopwords.words("english")  # stop words cache
 
-#TEXT_PATH = u'C:\\Users\\a\\Desktop\\WedtDane\\bbc'
-TEXT_PATH = u'C:\\Users\\Gabrysia\\Desktop\\STUDIA\\WEDT\\projekt\\data\\bbc'
+
+TEXT_PATH = u'C:\\Users\\a\\Desktop\\WedtDane\\bbc'
+#TEXT_PATH = u'C:\\Users\\Gabrysia\\Desktop\\STUDIA\\WEDT\\projekt\\data\\bbc'
 
 # reads one folder
 def read_folder(path_to_folder):
@@ -45,6 +52,8 @@ def read_data(path_to_folder):
     data = pd.DataFrame()
     for foldername in os.listdir(path_to_folder):
         data = pd.concat([data, read_folder(os.path.join(path_to_folder, foldername))], ignore_index=True)
+
+    print(data)
     print("Finished reading data")
     return data
 
@@ -77,17 +86,6 @@ def preprocess(data):
         filtered_tokens = list(filter(lambda token: p.match(token) and len(token) >= min_length, tokens))
         data.loc[index, 'final'] = str(filtered_tokens)
 
-def FrameTNG (set):
-    # creating dataframe
-    df = pd.DataFrame([set.target.tolist(), set.data]).T
-    df.columns = ['label1', 'text']
-
-    targets = pd.DataFrame(set.target_names)
-    targets.columns = ['label']
-
-    df = pd.merge(df, targets, left_on='label1', right_index=True)
-    df = df[['label', 'text']]
-    return df
 
 def frameNLTK_set(nltk_set):
     documents = nltk_set.fileids()
@@ -96,6 +94,7 @@ def frameNLTK_set(nltk_set):
                                 documents))
     test_docs_id = list(filter(lambda doc: doc.startswith("test"),
                                documents))
+
     train_docs = [nltk_set.raw(doc_id) for doc_id in train_docs_id]
     test_docs = [nltk_set.raw(doc_id) for doc_id in test_docs_id]
     mlb = MultiLabelBinarizer()
@@ -114,7 +113,13 @@ def frameNLTK_set(nltk_set):
 
 def bbc():
     bbc_data = read_data(TEXT_PATH)
+
+    print("Preprocessing data")
+    start = time.time()
     preprocess(bbc_data)
+    end = time.time()
+    print("Executed within:", end - start)
+
     bbc_training_set_x, bbc_test_set_x, bbc_training_set_y, bbc_test_set_y = split_data(bbc_data['final'],
                                                                                        bbc_data['label'], 0.3)
 
@@ -123,16 +128,6 @@ def bbc():
 
     bbc_training_set_y = Encoder.fit_transform(bbc_training_set_y)
     bbc_test_set_y = Encoder.fit_transform(bbc_test_set_y)
-
-    print("bbc print x 1")
-    print(bbc_training_set_x)
-    print("bbc print x 2")
-    print(bbc_test_set_x)
-
-    print("bbc print y 1")
-    print(bbc_training_set_y)
-    print("bbc print y 2")
-    print(bbc_test_set_y)
 
     vectorizer = TfidfVectorizer(min_df=3,
                                  max_df=0.90,
@@ -147,12 +142,16 @@ def bbc():
     return vectorized_train_documents_bbc, bbc_training_set_y, vectorized_test_documents_bbc, bbc_test_set_y
 
 def reut():
+    print("Importing Reuters-21578 dataset")
     from nltk.corpus import reuters
 
     reuters_training_set, reuters_training_set_y, reuters_test_set, reuters_test_set_y = frameNLTK_set(reuters)
     print("Preprocessing data")
+    start = time.time()
     preprocess(reuters_training_set)
     preprocess(reuters_test_set)
+    end = time.time()
+    print("Executed within:",end - start)
 
     reuters_training_set_x = reuters_training_set.loc[:, 'final']
     reuters_test_set_x = reuters_test_set.loc[:, 'final']
@@ -168,62 +167,47 @@ def reut():
 
     return vectorized_train_documents_reuters, reuters_training_set_y, vectorized_test_documents_reuters, reuters_test_set_y
 
-def tng():
-    from sklearn.datasets import fetch_20newsgroups
-    #Loading training set and test set; removing headers and footers
-    cats = ['alt.atheism', 'sci.space']
-    TNG_training_set = fetch_20newsgroups(subset='train', categories=cats, remove=('headers', 'footers', 'quotes'))
-    TNG_test_set = fetch_20newsgroups(subset='test', categories=cats, remove=('headers', 'footers', 'quotes'))
-    TNG_training_set = fetch_20newsgroups(subset='train', remove=('headers', 'footers', 'quotes'))
-    TNG_test_set = fetch_20newsgroups(subset='test', remove=('headers', 'footers', 'quotes'))
+def preprocessTNG(set):
+    X, labels = [], []
 
-    TNG_train_data = FrameTNG(TNG_training_set)
-    TNG_test_data = FrameTNG(TNG_test_set)
+    for i, entry in enumerate(set['data']):
+        tokens = [word.strip(string.punctuation) for word in RegexpTokenizer(r'\b[a-zA-Z][a-zA-Z0-9]{2,14}\b').tokenize(entry)]
+        text = [f.lower() for f in tokens if f and f.lower() not in STOP_WORDS]
+        if (len(text) == 0):
+            continue
+        Index = set['target'][i]
+        X.append(text)
+        labels.append(Index)
+    return X, np.array(labels)
+
+
+def tng():
+    print("Importing 20 News Group dataset")
+    #cats = ['alt.atheism', 'sci.space']
+    #TNG_set = fetch_20newsgroups(subset='all', categories=cats, remove=('headers', 'footers', 'quotes'),
+      #                               shuffle=True, random_state=42)
+
+    TNG_set = fetch_20newsgroups(subset='all', remove=('headers', 'footers', 'quotes'), shuffle=True, random_state=42)
 
     print("Preprocessing data")
-    preprocess(TNG_train_data)
-    preprocess(TNG_test_data)
+    start = time.time()
+    Data, Labels = preprocessTNG(TNG_set)
+    end = time.time()
+    print("Executed within:", end - start)
 
-    print(TNG_train_data)
-    print(TNG_test_data)
+    # rows: Docs. columns: words
+    Data = np.array([np.array(xi) for xi in Data])
 
-    TNG_training_set_x = TNG_train_data.loc[:,'final']
-    TNG_training_set_y = TNG_train_data.loc[:, 'label']
-    TNG_test_set_x = TNG_test_data.loc[:,'final']
-    TNG_test_set_y = TNG_test_data.loc[:,'label']
+    vectorizer = TfidfVectorizer(analyzer=lambda x: x, min_df=1).fit(Data)
+    vectorized_data = vectorizer.transform(Data)
 
-    print(TNG_training_set_x)
-    print(TNG_training_set_y)
-    print(TNG_test_set_x)
-    print(TNG_test_set_y)
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=1).split(vectorized_data, Labels)
+    train_indices, test_indices = next(sss)
 
-    # label encode the target variable
-    Encoder = LabelEncoder()
-    TNG_training_set_y = Encoder.fit_transform(TNG_training_set_y)
-    TNG_test_set_y = Encoder.fit_transform(TNG_test_set_y)
+    train_x, test_x = vectorized_data[train_indices], vectorized_data[test_indices]
+    train_y, test_y = Labels[train_indices], Labels[test_indices]
 
-    print("TNG print x 1")
-    print(TNG_training_set_x)
-    print("TNG print x 2")
-    print(TNG_test_set_x)
-
-    print("TNG print y 1")
-    print(TNG_training_set_y)
-    print("TNG print y 2")
-    print(TNG_test_set_y)
-
-
-    vectorizer = TfidfVectorizer(min_df=3,
-                                 max_df=0.90,
-                                 max_features=3000,
-                                 use_idf=True,
-                                 sublinear_tf=True,
-                                 norm='l2')
-
-    vectorized_train_documents_TNG = vectorizer.fit_transform(TNG_training_set_x)
-    vectorized_test_documents_TNG = vectorizer.transform(TNG_test_set_x)
-
-    return vectorized_train_documents_TNG, TNG_training_set_y, vectorized_test_documents_TNG, TNG_test_set_y
+    return train_x, train_y, test_x, test_y
 
 def evaluate(test, predictions):
     precision = precision_score(test, predictions,
@@ -286,20 +270,35 @@ def main():
     if (model == 'b') or (model == 'g'):
         classifier = OneVsOneClassifier(LinearSVC(random_state=42))
         classifier.fit(train_X, train_Y)
-        #
+
         predictions_SVM = classifier.predict(test_X)
         evaluate(test_Y, predictions_SVM)
         print_confm(test_Y, predictions_SVM, model)
 
-    # OVA
-    print("\n--------------\nOVA")
-    classifier = OneVsRestClassifier(LinearSVC(random_state=42))
-    classifier.fit(train_X, train_Y)
-    #
-    predictions_SVM = classifier.predict(test_X)
+        # OVA
+        print("\n--------------\nOVA")
+        classifier = OneVsRestClassifier(LinearSVC(random_state=42))
+        classifier.fit(train_X, train_Y)
 
-    evaluate(test_Y, predictions_SVM)
-    print_confm(test_Y, predictions_SVM, model)
+        predictions_SVM = classifier.predict(test_X)
+
+        evaluate(test_Y, predictions_SVM)
+        print_confm(test_Y, predictions_SVM, model)
+
+    if (model == 'r'):
+        # OVA
+        print("\n--------------\nOVA")
+        # classifier = OneVsRestClassifier(LinearSVC(random_state=42))
+
+        classifier = ClassifierChain(
+            classifier=LinearSVC(),
+            require_dense=[False, True]
+        )
+
+        classifier.fit(train_X, train_Y)
+        predictions_SVM = classifier.predict(test_X)
+        evaluate(test_Y, predictions_SVM)
+        print_confm(test_Y, predictions_SVM, model)
 
 if __name__ == '__main__':
     main()
